@@ -381,7 +381,7 @@ function buildHeroMesh(){
     new THREE.MeshBasicMaterial({ map:glowTex, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending }));
   flame.position.set(0,0.92,0.02); flame.scale.set(1.0,1.25,1);
   torchArm.add(flame);
-  g.add(armL, torchArm);
+  g.add(torso, cloak, hood, hoodBrim, face, armL, torchArm);
   // sword arm group (left)
   const swordArm = new THREE.Group(); swordArm.position.set(-0.34,0.9,0.05);
   const sa = box(0.13,0.4,0.13, cloakMat, 0,0.16,0); swordArm.add(sa);
