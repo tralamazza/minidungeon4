@@ -271,7 +271,7 @@ function makeLevel(depth){
     for(let i=0;i<n;i++){
       const px = room.x+1+Math.floor(r()*Math.max(1,room.w-2));
       const py = room.y+1+Math.floor(r()*Math.max(1,room.h-2));
-      const kinds=['pillar','barrel','crate','bones','rubble','banner','cobweb'];
+      const kinds=['pillar','barrel','crate','bones','rubble','banner','cobweb','skulls'];
       if(px===stairs.x&&py===stairs.y) continue;
       if(px===keyCell.x&&py===keyCell.y) continue;
       if(px===room.cx&&py===room.cy) continue;
@@ -304,7 +304,7 @@ function makeLevel(depth){
       if(isBossRoom){ enemies.push(makeEnemy('boss', room.cx, room.cy, depth)); }
       else {
         const roll=r();
-        const kind = roll<0.4 ? 'skeleton' : (roll<0.75 ? 'rat' : 'slime');
+        const kind = roll<0.32 ? 'skeleton' : (roll<0.58 ? 'rat' : (roll<0.78 ? 'slime' : 'wraith'));
         let ex = room.x+1+Math.floor(r()*Math.max(1,room.w-2));
         let ey = room.y+1+Math.floor(r()*Math.max(1,room.h-2));
         const wp = worldOf(ex,ey);
@@ -325,6 +325,18 @@ function makeLevel(depth){
     }
   }
 
+  // barred-cell room fixture with a captive skeleton
+  if(rooms.length >= 3 && r() < 0.7){
+    const cellRoom = rooms[1 + Math.floor(r()*(rooms.length-2))];
+    const cx = cellRoom.x+1+Math.floor(r()*Math.max(1,cellRoom.w-2));
+    const cy = cellRoom.y+1+Math.floor(r()*Math.max(1,cellRoom.h-2));
+    if(!(cx===stairs.x&&cy===stairs.y) && !(cx===keyCell.x&&cy===keyCell.y) &&
+       !chests.some(c=>c.x===cx&&c.y===cy) && !props.some(p=>p.x===cx&&p.y===cy)){
+      props.push({ x:cx, y:cy, kind:'cell' });
+      enemies.push(makeEnemy('captive', cx, cy, depth));
+    }
+  }
+
   torchSpots = [];
   for(const room of rooms){
     if(r()<0.85) torchSpots.push({ x:room.x+Math.floor(r()*room.w), y:room.y, kind:'sconce' });
@@ -340,7 +352,10 @@ function makeEnemy(kind, gx, gy, depth){
     rat:      { hp:2+Math.floor(depth/2), atk:1, range:1.0,  speed:3.1, aggro:8.5 },
     slime:    { hp:5+depth,               atk:1, range:1.2,  speed:1.5, aggro:6.0 },
     boss:     { hp:14+depth*4,            atk:2, range:1.7,  speed:1.9, aggro:10  },
+    wraith:   { hp:4+depth,               atk:1, range:1.4,  speed:2.7, aggro:8.0 },
+    captive:  { hp:3+depth,               atk:1, range:1.1,  speed:1.5, aggro:0    },
   }[kind];
+  const variant = (kind==='boss' && depth%6===0) ? 'void' : null;
   return {
     kind, gx, gy,
     x:(gx+0.5)*CELL, y:(gy+0.5)*CELL,
@@ -348,7 +363,7 @@ function makeEnemy(kind, gx, gy, depth){
     state:'idle', wanderT:Math.random()*3,
     swingT:0, attackCd:0, flash:0, knockX:0, knockY:0,
     dead:false, deathT:0, targetCell:null, path:[], pathT:0,
-    wobble:Math.random()*10, drift:0, mesh:null,
+    wobble:Math.random()*10, drift:0, mesh:null, variant,
   };
 }
 const cellOf = (x, y)=>({ x:Math.floor(x/CELL), y:Math.floor(y/CELL) });
@@ -426,6 +441,19 @@ function buildEnemyMesh(e){
     armR.add(blade);
     g.add(legL,legR,pelvis,ribs,head,eyeL,eyeR,armL,armR);
     g.userData.anim={legL,legR,head,armR};
+  } else if(e.kind==='captive'){
+    const bone = matBone;
+    const legL=box(0.16,0.4,0.16,bone,-0.11,0.2,0), legR=box(0.16,0.4,0.16,bone,0.11,0.2,0);
+    const pelvis=box(0.34,0.16,0.22,bone,0,0.46,0);
+    const ribs=box(0.4,0.4,0.26,bone,0,0.72,0);
+    const head=new THREE.Mesh(new THREE.SphereGeometry(0.24,8,6),bone); head.position.set(0,1.12,0);
+    const eyeMat=new THREE.MeshBasicMaterial({ color:0xffc76a });
+    const eyeL=new THREE.Mesh(new THREE.SphereGeometry(0.045,6,5),eyeMat); eyeL.position.set(-0.09,1.16,0.2);
+    const eyeR=eyeL.clone(); eyeR.position.x=0.09;
+    const chain=box(0.5,0.06,0.06, matIron, 0,0.8,0.16);
+    const chain2=box(0.5,0.06,0.06, matIron, 0,0.55,0.16);
+    g.add(legL,legR,pelvis,ribs,head,eyeL,eyeR,chain,chain2);
+    g.userData.anim={legL,legR,head};
   } else if(e.kind==='rat'){
     const fur=new THREE.MeshStandardMaterial({ color:0x5a4a3c, roughness:1 });
     const body=new THREE.Mesh(new THREE.SphereGeometry(0.34,10,8),fur);
@@ -441,6 +469,18 @@ function buildEnemyMesh(e){
     const eyeR=eyeL.clone(); eyeR.position.x=0.09;
     g.add(body,head,earL,earR,tail,eyeL,eyeR);
     g.userData.anim={body,head,tail};
+  } else if(e.kind==='wraith'){
+    const robeMat=new THREE.MeshStandardMaterial({ color:0x5a7a9a, roughness:0.4, transparent:true, opacity:0.72, emissive:0x1a2a4a, side:THREE.DoubleSide });
+    const body=new THREE.Mesh(new THREE.ConeGeometry(0.55,1.35,12), robeMat);
+    body.position.y=0.72; body.rotation.x=Math.PI;
+    const hood=new THREE.Mesh(new THREE.SphereGeometry(0.28,10,8), robeMat); hood.position.set(0,1.32,0);
+    const eyeMat=new THREE.MeshBasicMaterial({ color:0xa8f0ff });
+    const e1=new THREE.Mesh(new THREE.SphereGeometry(0.055,6,5),eyeMat); e1.position.set(-0.11,1.34,0.22);
+    const e2=e1.clone(); e2.position.x=0.11;
+    const wisps=new THREE.Mesh(new THREE.SphereGeometry(0.1,6,5), new THREE.MeshBasicMaterial({ color:0x9adfff, transparent:true, opacity:0.6 }));
+    wisps.position.set(0.45,0.9,0.1);
+    g.add(body,hood,e1,e2,wisps);
+    g.userData.anim={body,hood,wisps};
   } else if(e.kind==='slime'){
     const goo=new THREE.MeshStandardMaterial({ color:0x4fae4a, roughness:0.35, metalness:0.0, transparent:true, opacity:0.88, emissive:0x0c2a06 });
     const body=new THREE.Mesh(new THREE.SphereGeometry(0.52,14,12),goo);
@@ -450,7 +490,7 @@ function buildEnemyMesh(e){
     const eyeR=eyeL.clone(); eyeR.position.x=0.18;
     g.add(body,eyeL,eyeR);
     g.userData.anim={body};
-  } else { // boss
+  } else if(e.kind==='boss' && e.variant!=='void'){
     const robeMat=new THREE.MeshStandardMaterial({ color:0x4a2040, roughness:0.9 });
     const body=box(1.15,1.0,0.62,robeMat,0,0.85,0);
     const head=new THREE.Mesh(new THREE.SphereGeometry(0.4,12,10),new THREE.MeshStandardMaterial({color:0x2b1226,roughness:0.85}));
@@ -465,6 +505,25 @@ function buildEnemyMesh(e){
     swordArm.add(cleaver);
     g.add(body,head,e1,e2,hornL,hornR,swordArm);
     g.userData.anim={body,head,swordArm};
+  } else { // boss, void variant
+    const robeMat=new THREE.MeshStandardMaterial({ color:0x11332e, roughness:0.75 });
+    const body=box(1.2,1.05,0.66,robeMat,0,0.85,0);
+    const head=new THREE.Mesh(new THREE.SphereGeometry(0.44,12,10),new THREE.MeshStandardMaterial({color:0x0a1a17,roughness:0.8}));
+    head.position.set(0,1.74,0);
+    const eyeMat=new THREE.MeshBasicMaterial({ color:0x54ffd8 });
+    const e1=new THREE.Mesh(new THREE.SphereGeometry(0.07,6,5),eyeMat); e1.position.set(-0.15,1.78,0.36);
+    const e2=e1.clone(); e2.position.x=0.15;
+    const hornL=cyl(0.04,0.09,0.5,matIron,-0.3,2.12,0,6); hornL.rotation.z=0.55;
+    const hornR=cyl(0.04,0.09,0.5,matIron,0.3,2.12,0,6); hornR.rotation.z=-0.55;
+    const halo=new THREE.Mesh(new THREE.TorusGeometry(0.46,0.06,8,20),
+      new THREE.MeshBasicMaterial({ color:0x54ffd8, transparent:true, opacity:0.8 }));
+    halo.position.set(0,2.32,0); halo.rotation.x=Math.PI/2.4;
+    const scepter=box(0.09,1.35,0.09,matIron,0.78,1.6,0.1);
+    const orb=new THREE.Mesh(new THREE.SphereGeometry(0.16,10,8),
+      new THREE.MeshStandardMaterial({ color:0x54ffd8, emissive:0x2a8a70, emissiveIntensity:2.4 }));
+    orb.position.set(0.78,2.32,0.1);
+    g.add(body,head,e1,e2,hornL,hornR,halo,scepter,orb);
+    g.userData.anim={body,head,scepter,halo};
   }
   g.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.receiveShadow=true; } });
   return g;
@@ -570,6 +629,17 @@ function buildLevelMeshes(){
       }
       const skull = new THREE.Mesh(new THREE.SphereGeometry(0.16,8,6), matBone);
       skull.position.set(px+0.2,0.1,pz-0.15); levelGroup.add(skull);
+    } else if(p.kind==='skulls'){
+      for(let i=0;i<5;i++){
+        const bone = box(0.4+Math.random()*0.25,0.09,0.09, matBone, px+(Math.random()-0.5)*0.8, 0.05, pz+(Math.random()-0.5)*0.8);
+        bone.rotation.y = Math.random()*3;
+        levelGroup.add(bone);
+      }
+      for(let i=0;i<2;i++){
+        const skull = new THREE.Mesh(new THREE.SphereGeometry(0.2,8,6), matBone);
+        skull.position.set(px+(Math.random()-0.5)*0.5, 0.12, pz+(Math.random()-0.5)*0.5);
+        levelGroup.add(skull);
+      }
     } else if(p.kind==='rubble'){
       for(let i=0;i<6;i++){
         const s = box(0.22+Math.random()*0.22,0.16+Math.random()*0.2,0.22+Math.random()*0.2, matStone,
@@ -578,7 +648,9 @@ function buildLevelMeshes(){
       }
     } else if(p.kind==='banner'){
       const pole = cyl(0.05,0.05,2.4, matIron, px,1.2,pz,6);
-      const flag = box(0.62,1.05,0.05, new THREE.MeshStandardMaterial({ color:0x7a2430, roughness:0.9, side:THREE.DoubleSide }), px,1.6,pz);
+      const bannerColors = [0x7a2430, 0x2a5a3a, 0x2f3a6e, 0x6a4a1a];
+      const bc = bannerColors[(p.x*3 + p.y*5) % bannerColors.length];
+      const flag = box(0.62,1.05,0.05, new THREE.MeshStandardMaterial({ color:bc, roughness:0.9, side:THREE.DoubleSide }), px,1.6,pz);
       const trim = box(0.68,0.1,0.06, matGold, px,2.14,pz);
       levelGroup.add(pole,flag,trim);
       p.collider = { x:px, z:pz, r:0.22 };
@@ -600,6 +672,18 @@ function buildLevelMeshes(){
         levelGroup.add(spike);
       }
       p.spikes = { x:px, z:pz, r:0.5 };
+    } else if(p.kind==='cell'){
+      const cageMat = matIron;
+      for(let i=0;i<4;i++){
+        const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,2.1,6), cageMat);
+        bar.position.set(px-0.6+i*0.4, 1.05, pz-0.78);
+        levelGroup.add(bar);
+      }
+      const barTop = box(1.6,0.08,0.08, cageMat, px, 2.12, pz-0.78);
+      const barBot = box(1.6,0.08,0.08, cageMat, px, 0.18, pz-0.78);
+      const grille = box(1.55,0.06,1.55, cageMat, px, 0.045, pz);
+      levelGroup.add(barTop, barBot, grille);
+      p.collider = null;
     } else if(p.kind==='swing'){
       const post = cyl(0.09,0.12,2.5, matIron, px,1.25,pz,8);
       levelGroup.add(post);
@@ -1113,7 +1197,10 @@ function heroUpdate(dt, now){
       else {
         let bd=1e9, bc=null;
         for(const ch of chests) if(!ch.opened){ const d=dist(hero.x,hero.y,(ch.x+0.5)*CELL,(ch.y+0.5)*CELL); if(d<bd){bd=d;bc=ch;} }
-        if(bc && bd < 7) goal = { x:bc.x, y:bc.y };
+        if(bc && bd < 7){
+          const freeC = nearestFreeCell(bc.x, bc.y);
+          goal = freeC ? { x:freeC.x, y:freeC.y } : { x:stairs.x, y:stairs.y };
+        }
         else if(state.hasKey && !doors[0].open) goal = { x:doors[0].x, y:doors[0].y };
         else goal = { x:stairs.x, y:stairs.y };
       }
@@ -1183,7 +1270,7 @@ function heroUpdate(dt, now){
 
   // reach things
   for(const ch of chests){
-    if(!ch.opened && dist(hero.x,hero.y,(ch.x+0.5)*CELL,(ch.y+0.5)*CELL) < 2.4) openChest(ch);
+    if(!ch.opened && dist(hero.x,hero.y,(ch.x+0.5)*CELL,(ch.y+0.5)*CELL) < 3.2) openChest(ch);
   }
   if(keyMesh && !state.hasKey && dist(hero.x,hero.y,(keyCell.x+0.5)*CELL,(keyCell.y+0.5)*CELL) < 1.0){
     state.hasKey = true;
@@ -1298,6 +1385,24 @@ function enemyUpdate(dt, now){
       e.knockX *= 0.78; e.knockY *= 0.78;
       if(!isCollidableAt(e.x,e.y,0.34)){ e.knockX=0; e.knockY=0; }
     }
+    if(e.kind==='captive'){
+      if(e.flash>0) e.flash -= dt;
+      e.mesh.traverse(o=>{
+        if(o.isMesh && o.material && o.material.emissive){
+          o.material.emissive.setHex(e.flash>0 ? 0xffdd88 : 0x000000);
+          o.material.emissiveIntensity = e.flash>0 ? 1.6 : 0;
+        }
+      });
+      const g0 = e.mesh.userData.anim;
+      if(g0){
+        const ph = e.wobble*7;
+        g0.legL.rotation.x = Math.sin(ph)*0.3; g0.legR.rotation.x = Math.sin(ph+Math.PI)*0.3;
+        g0.head.rotation.y = Math.sin(e.wobble*1.7)*0.4;
+      }
+      const c0 = cellOf(e.x, e.y); e.gx=c0.x; e.gy=c0.y;
+      e.mesh.position.set(e.x, 0, e.y);
+      continue;
+    }
     if(e.flash>0) e.flash -= dt;
     e.mesh.traverse(o=>{
       if(o.isMesh && o.material && o.material.emissive){
@@ -1357,11 +1462,21 @@ function enemyUpdate(dt, now){
         g.head.rotation.y = Math.sin(e.wobble*1.7)*0.5;
         g.armR.rotation.x = e.swingT>0 ? -2.2*Math.sin((e.swingT/0.32)*Math.PI) : Math.sin(e.wobble*2)*0.2;
         e.swingT = Math.max(0, e.swingT - dt);
+      } else if(e.kind==='captive'){
+        const ph = e.wobble*7;
+        g.legL.rotation.x = Math.sin(ph)*0.3; g.legR.rotation.x = Math.sin(ph+Math.PI)*0.3;
+        g.head.rotation.y = Math.sin(e.wobble*1.7)*0.4;
       } else if(e.kind==='rat'){
         const ph = e.wobble*13;
         g.body.position.y = 0.3 + Math.sin(ph)*0.06;
         g.body.rotation.z = Math.sin(ph)*0.12;
         g.tail.rotation.x = 1.05 + Math.sin(ph*0.6)*0.4;
+      } else if(e.kind==='wraith'){
+        const ph = e.wobble*2.6;
+        g.body.scale.set(1, 1 + Math.sin(ph)*0.12, 1);
+        g.hood.position.y = 1.32 + Math.sin(ph*1.4)*0.09;
+        g.wisps.position.y = 0.9 + Math.sin(ph*1.8)*0.16;
+        g.wisps.position.x = 0.45 + Math.cos(ph)*0.08;
       } else if(e.kind==='slime'){
         const sq = 1 + Math.sin(e.wobble*4.5)*0.16;
         g.body.scale.set(1.25*sq, 0.66/sq, 1.25*sq);
@@ -1369,7 +1484,13 @@ function enemyUpdate(dt, now){
       } else {
         g.body.scale.y = 1 + Math.sin(e.wobble*3.2)*0.05;
         g.head.rotation.y = Math.sin(e.wobble*1.3)*0.4;
-        g.swordArm.rotation.x = e.swingT>0 ? -2.4*Math.sin((e.swingT/0.32)*Math.PI) : 0.3;
+        if(g.swordArm){
+          g.swordArm.rotation.x = e.swingT>0 ? -2.4*Math.sin((e.swingT/0.32)*Math.PI) : 0.3;
+        }
+        if(g.scepter){
+          g.scepter.rotation.x = e.swingT>0 ? -1.9*Math.sin((e.swingT/0.32)*Math.PI) : 0.15;
+          g.halo.rotation.z = e.wobble*0.8;
+        }
         e.swingT = Math.max(0, e.swingT - dt);
       }
     }
