@@ -525,7 +525,25 @@ function buildEnemyMesh(e){
     g.add(body,head,e1,e2,hornL,hornR,halo,scepter,orb);
     g.userData.anim={body,head,scepter,halo};
   }
-  g.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.receiveShadow=true; } });
+  const clonedMats = new Map();
+  const flashBase = [];
+  const seenFlashMats = new Set();
+  g.traverse(o=>{
+    if(!o.isMesh) return;
+    o.castShadow=true; o.receiveShadow=true;
+    const m = o.material;
+    if(m && m.emissive){
+      if(m === matBone || m === matIron){
+        if(!clonedMats.has(m)) clonedMats.set(m, m.clone());
+        o.material = clonedMats.get(m);
+      }
+      if(!seenFlashMats.has(o.material)){
+        seenFlashMats.add(o.material);
+        flashBase.push({ mat:o.material, hex:o.material.emissive.getHex(), int:o.material.emissiveIntensity });
+      }
+    }
+  });
+  g.userData.flashBase = flashBase;
   return g;
 }
 
@@ -940,7 +958,7 @@ function findPath(sx,sy,tx,ty){
 // ---------- Input (optional — hero plays itself) ----------
 addEventListener('keydown',(e)=>{
   const k=e.key.toLowerCase();
-  if(k==='l'){ statsOn=!statsOn; statsEl.classList.toggle('on', statsOn); }
+  if(k==='l'){ statsOn=!statsOn; statsEl.classList.toggle('on', statsOn); return; }
   state.keysDown[k]=true;
   if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k)) e.preventDefault();
   state.lastInput = state.time;
@@ -1387,12 +1405,11 @@ function enemyUpdate(dt, now){
     }
     if(e.kind==='captive'){
       if(e.flash>0) e.flash -= dt;
-      e.mesh.traverse(o=>{
-        if(o.isMesh && o.material && o.material.emissive){
-          o.material.emissive.setHex(e.flash>0 ? 0xffdd88 : 0x000000);
-          o.material.emissiveIntensity = e.flash>0 ? 1.6 : 0;
-        }
-      });
+      const flashing = e.flash>0;
+      for(const f of e.mesh.userData.flashBase || []){
+        if(flashing){ f.mat.emissive.setHex(0xffdd88); f.mat.emissiveIntensity = 1.6; }
+        else { f.mat.emissive.setHex(f.hex); f.mat.emissiveIntensity = f.int; }
+      }
       const g0 = e.mesh.userData.anim;
       if(g0){
         const ph = e.wobble*7;
@@ -1404,12 +1421,11 @@ function enemyUpdate(dt, now){
       continue;
     }
     if(e.flash>0) e.flash -= dt;
-    e.mesh.traverse(o=>{
-      if(o.isMesh && o.material && o.material.emissive){
-        o.material.emissive.setHex(e.flash>0 ? 0xffdd88 : 0x000000);
-        o.material.emissiveIntensity = e.flash>0 ? 1.6 : 0;
-      }
-    });
+    const flashing = e.flash>0;
+    for(const f of e.mesh.userData.flashBase || []){
+      if(flashing){ f.mat.emissive.setHex(0xffdd88); f.mat.emissiveIntensity = 1.6; }
+      else { f.mat.emissive.setHex(f.hex); f.mat.emissiveIntensity = f.int; }
+    }
     e.attackCd = Math.max(0, e.attackCd - dt);
     // gentle separation from hero and other live enemies
     const pushFrom=(ox,oy,rr)=>{
@@ -1462,10 +1478,6 @@ function enemyUpdate(dt, now){
         g.head.rotation.y = Math.sin(e.wobble*1.7)*0.5;
         g.armR.rotation.x = e.swingT>0 ? -2.2*Math.sin((e.swingT/0.32)*Math.PI) : Math.sin(e.wobble*2)*0.2;
         e.swingT = Math.max(0, e.swingT - dt);
-      } else if(e.kind==='captive'){
-        const ph = e.wobble*7;
-        g.legL.rotation.x = Math.sin(ph)*0.3; g.legR.rotation.x = Math.sin(ph+Math.PI)*0.3;
-        g.head.rotation.y = Math.sin(e.wobble*1.7)*0.4;
       } else if(e.kind==='rat'){
         const ph = e.wobble*13;
         g.body.position.y = 0.3 + Math.sin(ph)*0.06;
